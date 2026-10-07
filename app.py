@@ -133,4 +133,46 @@ if uploaded_image and task == "Image Classification":
             for i in range(len(labels))
         }
 
-        st.json(results)
+        st.json(results)# -------------------------------
+# Ground Truth Evaluation
+# -------------------------------
+
+st.divider()
+
+st.subheader("🎯 Ground Truth Evaluation")
+
+ground_truth = st.selectbox(
+    "Select the correct class (Ground Truth):",
+    labels
+)
+
+if st.button("Evaluate Prediction 📊"):
+
+    predicted_class = prediction.replace("a photo of a ", "").strip()
+    true_class = ground_truth.replace("a photo of a ", "").strip()
+
+    if predicted_class == true_class:
+
+        st.success("✅ Correct Prediction!")
+
+        st.metric(
+            "Accuracy",
+            "100%"
+        )
+
+    else:
+
+        st.error("❌ Incorrect Prediction")
+
+        st.metric(
+            "Accuracy",
+            "0%"
+        )
+
+        st.write(
+            f"**Ground Truth:** {true_class}"
+        )
+
+        st.write(
+            f"**CLIP Prediction:** {predicted_class}"
+        )
