@@ -78,10 +78,7 @@ if uploaded_image and task == "Image Classification":
             processor = CLIPProcessor.from_pretrained(
                 "openai/clip-vit-base-patch32"
             )
-
-        image = Image.open(uploaded_image).convert("RGB")
-
-        labels = [
+labels = [
             "a photo of a dog",
             "a photo of a cat",
             "a photo of a car",
@@ -92,6 +89,9 @@ if uploaded_image and task == "Image Classification":
             "a photo of a padlock"
         ]
 
+        image = Image.open(uploaded_image).convert("RGB")
+
+        
         inputs = processor(
             text=labels,
             images=image,
