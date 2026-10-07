@@ -61,6 +61,16 @@ st.write("Selected task:", task)
 # -------------------------------
 # CLIP Image Classification
 # -------------------------------
+labels = [
+            "a photo of a dog",
+            "a photo of a cat",
+            "a photo of a car",
+            "a photo of a person",
+            "a photo of a bird",
+            "a photo of a building",
+            "a photo of a computer",
+            "a photo of a padlock"
+        ]
 
 if uploaded_image and task == "Image Classification":
 
@@ -78,16 +88,6 @@ if uploaded_image and task == "Image Classification":
             processor = CLIPProcessor.from_pretrained(
                 "openai/clip-vit-base-patch32"
             )
-labels = [
-            "a photo of a dog",
-            "a photo of a cat",
-            "a photo of a car",
-            "a photo of a person",
-            "a photo of a bird",
-            "a photo of a building",
-            "a photo of a computer",
-            "a photo of a padlock"
-        ]
 
         image = Image.open(uploaded_image).convert("RGB")
 
@@ -138,42 +138,47 @@ labels = [
 # Ground Truth Evaluation
 # -------------------------------
 
-st.divider()
+# -------------------------------
+# Ground Truth Evaluation
+# -------------------------------
 
-st.subheader("🎯 Ground Truth Evaluation")
+if "prediction" in st.session_state:
 
-ground_truth = st.selectbox(
-    "Select the correct class (Ground Truth):",
-    labels
-)
+    st.divider()
+    st.subheader("🎯 Ground Truth Evaluation")
 
-if st.button("Evaluate Prediction 📊"):
+    ground_truth = st.selectbox(
+        "Select the correct class (Ground Truth):",
+        labels
+    )
 
-    predicted_class = prediction.replace("a photo of a ", "").strip()
-    true_class = ground_truth.replace("a photo of a ", "").strip()
+    if st.button("Evaluate Prediction 📊"):
 
-    if predicted_class == true_class:
+        predicted_class = st.session_state["prediction"].replace(
+            "a photo of a ", ""
+        ).strip()
 
-        st.success("✅ Correct Prediction!")
+        true_class = ground_truth.replace(
+            "a photo of a ", ""
+        ).strip()
 
-        st.metric(
-            "Accuracy",
-            "100%"
-        )
+        if predicted_class == true_class:
 
-    else:
+            st.success("✅ Correct Prediction!")
 
-        st.error("❌ Incorrect Prediction")
+            st.metric(
+                "Accuracy",
+                "100%"
+            )
 
-        st.metric(
-            "Accuracy",
-            "0%"
-        )
+        else:
 
-        st.write(
-            f"**Ground Truth:** {true_class}"
-        )
+            st.error("❌ Incorrect Prediction")
 
-        st.write(
-            f"**CLIP Prediction:** {predicted_class}"
-        )
+            st.metric(
+                "Accuracy",
+                "0%"
+            )
+
+            st.write(f"**Ground Truth:** {true_class}")
+            st.write(f"**CLIP Prediction:** {predicted_class}")
