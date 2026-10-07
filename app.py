@@ -180,69 +180,84 @@ if "prediction" in st.session_state:
                 "0%"
             )
                 # -------------------------------
-# CLIP Results Dashboard
+# Ground Truth Evaluation + Dashboard
 # -------------------------------
 
 if "prediction" in st.session_state:
 
     st.divider()
-    st.header("📊 CLIP Results Dashboard")
+    st.subheader("🎯 Ground Truth Evaluation")
 
-    predicted = st.session_state["prediction"]
+    ground_truth = st.selectbox(
+        "Select the correct class (Ground Truth):",
+        labels
+    )
 
-    predicted_clean = predicted.replace(
-        "a photo of a ", ""
-    ).strip()
+    if st.button("Evaluate Prediction 📊"):
 
-    ground_truth_clean = ground_truth.replace(
-        "a photo of a ", ""
-    ).strip() if "ground_truth" in locals() else "Not evaluated"
+        predicted_class = st.session_state["prediction"].replace(
+            "a photo of a ", ""
+        ).strip()
 
-    col1, col2, col3 = st.columns(3)
+        true_class = ground_truth.replace(
+            "a photo of a ", ""
+        ).strip()
 
-    with col1:
-        st.metric(
-            "Prediction",
-            predicted_clean.title()
-        )
+        is_correct = predicted_class == true_class
 
-    with col2:
-        st.metric(
-            "Ground Truth",
-            ground_truth_clean.title()
-        )
-
-    with col3:
-        if ground_truth_clean != "Not evaluated":
-            result = "Correct ✅" if predicted_clean == ground_truth_clean else "Wrong ❌"
+        if is_correct:
+            st.success("✅ Correct Prediction!")
+            accuracy = 100
         else:
-            result = "Not Evaluated"
+            st.error("❌ Incorrect Prediction")
+            accuracy = 0
 
         st.metric(
-            "Result",
-            result
+            "Accuracy",
+            f"{accuracy}%"
         )
 
-    st.subheader("📈 Model Interpretation")
+        st.write(f"**Ground Truth:** {true_class}")
+        st.write(f"**CLIP Prediction:** {predicted_class}")
 
-    if ground_truth_clean != "Not evaluated":
+        st.divider()
+        st.header("📊 CLIP Results Dashboard")
 
-        if predicted_clean == ground_truth_clean:
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Prediction",
+                predicted_class.title()
+            )
+
+        with col2:
+            st.metric(
+                "Ground Truth",
+                true_class.title()
+            )
+
+        with col3:
+            result = "Correct ✅" if is_correct else "Wrong ❌"
+
+            st.metric(
+                "Result",
+                result
+            )
+
+        st.subheader("📝 Model Interpretation")
+
+        if is_correct:
             st.success(
                 "CLIP correctly classified the image."
             )
         else:
             st.warning(
-                f"CLIP predicted **{predicted_clean}**, "
-                f"but the ground truth was **{ground_truth_clean}**."
+                f"CLIP predicted **{predicted_class}**, "
+                f"but the ground truth was **{true_class}**."
             )
 
-    st.info(
-        "This dashboard summarizes the model prediction, "
-        "ground truth, and evaluation result."
-    )
-        
-     st.info(
-        "This dashboard summarizes the model prediction, "
-        "ground truth, and evaluation result."
-    )
+        st.info(
+            "This dashboard summarizes the model prediction, "
+            "ground truth, and evaluation result."
+        )
