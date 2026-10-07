@@ -1,6 +1,7 @@
 import streamlit as st
 import torch
 from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
 
 st.set_page_config(
     page_title="VisionEval",
@@ -78,7 +79,7 @@ if uploaded_image and task == "Image Classification":
                 "openai/clip-vit-base-patch32"
             )
 
-        image = uploaded_image
+        image = Image.open(uploaded_image).convert("RGB")
 
         labels = [
             "a photo of a dog",
