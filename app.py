@@ -110,6 +110,7 @@ labels = [
         best_index = probabilities.argmax().item()
 
         prediction = labels[best_index]
+        st.session_state["prediction"] = prediction
 
         confidence = probabilities[best_index].item() * 100
 
