@@ -178,6 +178,7 @@ if "prediction" in st.session_state:
             st.metric(
                 "Accuracy",
                 "0%"
+            )
                 # -------------------------------
 # CLIP Results Dashboard
 # -------------------------------
