@@ -178,6 +178,68 @@ if "prediction" in st.session_state:
             st.metric(
                 "Accuracy",
                 "0%"
+                # -------------------------------
+# CLIP Results Dashboard
+# -------------------------------
+
+if "prediction" in st.session_state:
+
+    st.divider()
+    st.header("📊 CLIP Results Dashboard")
+
+    predicted = st.session_state["prediction"]
+
+    predicted_clean = predicted.replace(
+        "a photo of a ", ""
+    ).strip()
+
+    ground_truth_clean = ground_truth.replace(
+        "a photo of a ", ""
+    ).strip() if "ground_truth" in locals() else "Not evaluated"
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Prediction",
+            predicted_clean.title()
+        )
+
+    with col2:
+        st.metric(
+            "Ground Truth",
+            ground_truth_clean.title()
+        )
+
+    with col3:
+        if ground_truth_clean != "Not evaluated":
+            result = "Correct ✅" if predicted_clean == ground_truth_clean else "Wrong ❌"
+        else:
+            result = "Not Evaluated"
+
+        st.metric(
+            "Result",
+            result
+        )
+
+    st.subheader("📈 Model Interpretation")
+
+    if ground_truth_clean != "Not evaluated":
+
+        if predicted_clean == ground_truth_clean:
+            st.success(
+                "CLIP correctly classified the image."
+            )
+        else:
+            st.warning(
+                f"CLIP predicted **{predicted_clean}**, "
+                f"but the ground truth was **{ground_truth_clean}**."
+            )
+
+    st.info(
+        "This dashboard summarizes the model prediction, "
+        "ground truth, and evaluation result."
+    )
             )
 
             st.write(f"**Ground Truth:** {true_class}")
