@@ -242,6 +242,7 @@ if "prediction" in st.session_state:
         "ground truth, and evaluation result."
     )
         
-
-            st.write(f"**Ground Truth:** {true_class}")
-            st.write(f"**CLIP Prediction:** {predicted_class}")
+     st.info(
+        "This dashboard summarizes the model prediction, "
+        "ground truth, and evaluation result."
+    )
