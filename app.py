@@ -319,7 +319,7 @@ elif task == "Visual Question Answering":
 # BLIP IMAGE CAPTIONING
 # -------------------------------
 
-if uploaded_image:
+if "uploaded_image" in locals() and uploaded_image:
 
     st.divider()
     st.header("📝 BLIP Image Captioning")
