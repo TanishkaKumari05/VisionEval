@@ -315,3 +315,48 @@ elif task == "Image Captioning":
 
 elif task == "Visual Question Answering":
     st.info("🚧 LLaVA and Gemini evaluation is coming next.")
+    # -------------------------------
+# BLIP IMAGE CAPTIONING
+# -------------------------------
+
+if uploaded_image:
+
+    st.divider()
+    st.header("📝 BLIP Image Captioning")
+
+    if st.button("Run BLIP Captioning 🚀"):
+
+        with st.spinner("Loading BLIP model..."):
+
+            blip_processor = BlipProcessor.from_pretrained(
+                "Salesforce/blip-image-captioning-base"
+            )
+
+            blip_model = BlipForConditionalGeneration.from_pretrained(
+                "Salesforce/blip-image-captioning-base"
+            )
+
+            image = Image.open(uploaded_image).convert("RGB")
+
+            inputs = blip_processor(
+                images=image,
+                return_tensors="pt"
+            )
+
+            with torch.no_grad():
+                output = blip_model.generate(
+                    **inputs,
+                    max_new_tokens=30
+                )
+
+            caption = blip_processor.decode(
+                output[0],
+                skip_special_tokens=True
+            )
+
+        st.success("BLIP caption generated successfully! ✅")
+
+        st.subheader("Generated Caption")
+        st.write(caption)
+
+        st.session_state["blip_caption"] = caption
