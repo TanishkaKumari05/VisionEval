@@ -1,10 +1,15 @@
-
 import streamlit as st
 import torch
 import pandas as pd
 from PIL import Image
 from io import BytesIO
-from transformers import CLIPModel, CLIPProcessor
+
+from transformers import (
+    CLIPModel,
+    CLIPProcessor,
+    BlipProcessor,
+    BlipForConditionalGeneration
+)
 
 st.set_page_config(
     page_title="VisionEval",
