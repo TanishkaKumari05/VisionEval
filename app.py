@@ -249,4 +249,6 @@ if task == "Image Classification (CLIP)":
                 )
 
                 inputs = {
-                    key: value.to(DEVICE)
+    key: value.to(DEVICE)
+    for key, value in inputs.items()
+}
