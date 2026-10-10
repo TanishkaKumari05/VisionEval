@@ -1,5 +1,6 @@
 import base64
-from io import BytesIO
+import io
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -9,754 +10,243 @@ from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from transformers import (
     CLIPModel,
     CLIPProcessor,
-    BlipProcessor,
     BlipForConditionalGeneration,
+    BlipProcessor,
 )
-from google import genai
 from huggingface_hub import InferenceClient
+from google import genai
 
 
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
+# ---------------------------------------------------------
+# PAGE CONFIGURATION
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="VisionEval",
-    page_icon="👁️",
+    page_title="VisionEval | Multimodal AI Evaluation",
+    page_icon="🧠",
     layout="wide",
+)
+
+st.title("🧠 VisionEval")
+st.caption(
+    "Evaluate and compare multimodal AI models for image classification, "
+    "image captioning, and visual question answering."
+)
+
+st.markdown(
+    """
+    **Tasks available**
+    - **Image classification:** CLIP
+    - **Image captioning:** BLIP
+    - **Visual Question Answering (VQA):** Gemini and Hugging Face vision models
+    - **Evaluation:** confidence, accuracy, BLEU, exact match, and CSV downloads
+    """
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-# ============================================================
-# MODEL LOADERS
-# ============================================================
-
-@st.cache_resource(show_spinner=False)
-def load_clip_model():
-    processor = CLIPProcessor.from_pretrained(
-        "openai/clip-vit-base-patch32"
-    )
-    model = CLIPModel.from_pretrained(
-        "openai/clip-vit-base-patch32"
-    ).to(DEVICE)
+# ---------------------------------------------------------
+# MODEL LOADING
+# ---------------------------------------------------------
+@st.cache_resource(show_spinner="Loading CLIP model...")
+def load_clip():
+    model_name = "openai/clip-vit-base-patch32"
+    processor = CLIPProcessor.from_pretrained(model_name)
+    model = CLIPModel.from_pretrained(model_name)
+    model.to(DEVICE)
     model.eval()
     return processor, model
 
 
-@st.cache_resource(show_spinner=False)
-def load_blip_model():
-    processor = BlipProcessor.from_pretrained(
-        "Salesforce/blip-image-captioning-base"
-    )
-    model = BlipForConditionalGeneration.from_pretrained(
-        "Salesforce/blip-image-captioning-base"
-    ).to(DEVICE)
+@st.cache_resource(show_spinner="Loading BLIP captioning model...")
+def load_blip():
+    model_name = "Salesforce/blip-image-captioning-base"
+    processor = BlipProcessor.from_pretrained(model_name)
+    model = BlipForConditionalGeneration.from_pretrained(model_name)
+    model.to(DEVICE)
     model.eval()
     return processor, model
 
 
-def normalize_answer(value):
-    return " ".join(
-        str(value).lower().strip().split()
-    ).rstrip(".,!? ")
-
-
-def read_secret(name):
+# ---------------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------------
+def get_secret(secret_name, default=""):
+    """Read a Streamlit secret safely."""
     try:
-        return str(st.secrets.get(name, "")).strip()
+        return str(st.secrets.get(secret_name, default)).strip()
     except Exception:
-        return ""
+        return default
 
 
-# ============================================================
-# HEADER + SIDEBAR
-# ============================================================
-
-st.title("👁️ VisionEval")
-
-st.subheader(
-    "Multimodal AI Model Evaluation & Error Analysis Platform"
-)
-
-st.write(
-    "Evaluate image classification, image captioning, and visual "
-    "question answering with task-specific metrics."
-)
-
-st.sidebar.title("⚙️ Evaluation Settings")
-st.sidebar.write(f"**Device:** `{DEVICE}`")
-
-task = st.sidebar.selectbox(
-    "Select Evaluation Task",
-    [
-        "Image Classification",
-        "Image Captioning",
-        "Visual Question Answering",
-    ],
-)
-
-st.sidebar.divider()
-
-st.sidebar.info(
-    "**VisionEval Models**\n\n"
-    "🔵 CLIP → Image Classification\n\n"
-    "🟢 BLIP → Image Captioning\n\n"
-    "🟣 LLaVA → Visual Question Answering\n\n"
-    "🔴 Gemini → Visual Question Answering"
-)
+def image_to_data_url(image: Image.Image) -> str:
+    """Convert a PIL image into a JPEG data URL."""
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG", quality=90)
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
 
 
-# ============================================================
+def normalize_answer(answer: str) -> str:
+    """Normalize answers for a basic exact-match comparison."""
+    return " ".join(str(answer).strip().lower().split()).strip(" .,!?:;")
+
+
+def make_csv_download(dataframe: pd.DataFrame, filename: str, label: str):
+    csv_data = dataframe.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        label=label,
+        data=csv_data,
+        file_name=filename,
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
+def show_api_error(provider_name: str, error: Exception):
+    st.error(f"{provider_name} request failed.")
+    st.code(str(error))
+    st.caption(
+        "Check your API key, model access, provider availability, and "
+        "the model identifier. Never share your API keys."
+    )
+
+
+def calculate_bleu(reference: str, candidate: str) -> float:
+    """Calculate sentence-level BLEU with smoothing."""
+    reference_tokens = reference.lower().strip().split()
+    candidate_tokens = candidate.lower().strip().split()
+
+    if not reference_tokens or not candidate_tokens:
+        return 0.0
+
+    smoothing = SmoothingFunction().method1
+    return float(
+        sentence_bleu(
+            [reference_tokens],
+            candidate_tokens,
+            smoothing_function=smoothing,
+        )
+    )
+
+
+# ---------------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------------
+with st.sidebar:
+    st.header("About VisionEval")
+    st.write("A multimodal AI model evaluation dashboard.")
+    st.write(f"**Runtime device:** `{DEVICE}`")
+    st.divider()
+    st.subheader("API configuration")
+    st.write(
+        "Add GEMINI_API_KEY and HF_TOKEN in Streamlit Secrets. "
+        "Do not place API keys directly in this file."
+    )
+    st.caption("CLIP and BLIP are downloaded from Hugging Face.")
+
+
+# ---------------------------------------------------------
 # IMAGE UPLOAD
-# ============================================================
+# ---------------------------------------------------------
+st.header("1. Upload an image")
 
-st.header("📷 Upload an Image")
-
-uploaded_image = st.file_uploader(
-    "Choose an image",
-    type=["jpg", "jpeg", "png"],
-    key="visioneval_image_uploader",
+uploaded_file = st.file_uploader(
+    "Choose an image file",
+    type=["png", "jpg", "jpeg", "webp"],
 )
 
-image = None
-
-if uploaded_image is not None:
-    try:
-        image = Image.open(
-            BytesIO(uploaded_image.getvalue())
-        ).convert("RGB")
-
-        st.image(
-            image,
-            caption="Uploaded Image",
-            width=400,
-        )
-
-        st.divider()
-
-    except Exception as exc:
-        st.error(f"Could not open this image: {exc}")
-
-
-# ============================================================
-# CLIP: IMAGE CLASSIFICATION
-# ============================================================
-
-if task == "Image Classification":
-
-    st.header("🔵 CLIP Image Classification")
-
-    st.write(
-        "CLIP compares an image with candidate text labels and selects "
-        "the label with the highest similarity."
-    )
-
-    if image is None:
-        st.info(
-            "Upload an image above to start CLIP evaluation."
-        )
-
-    else:
-
-        labels = [
-            "person",
-            "dog",
-            "cat",
-            "car",
-            "bird",
-            "computer",
-            "phone",
-            "bicycle",
-            "food",
-            "building",
-            "tree",
-            "book",
-            "chair",
-            "padlock",
-            "shoe",
-        ]
-
-        ground_truth = st.selectbox(
-            "🎯 Select Ground Truth Label",
-            labels,
-            key="clip_ground_truth_input",
-        )
-
-        if st.button(
-            "🚀 Run CLIP Evaluation",
-            type="primary",
-        ):
-
-            try:
-                with st.spinner("Loading CLIP model..."):
-                    processor, model = load_clip_model()
-
-                with st.spinner("Evaluating image..."):
-
-                    texts = [
-                        f"a photo of a {label}"
-                        for label in labels
-                    ]
-
-                    inputs = processor(
-                        text=texts,
-                        images=image,
-                        return_tensors="pt",
-                        padding=True,
-                    )
-
-                    inputs = {
-                        key: value.to(DEVICE)
-                        for key, value in inputs.items()
-                    }
-
-                    with torch.no_grad():
-                        outputs = model(**inputs)
-
-                        probabilities = (
-                            outputs.logits_per_image.softmax(dim=1)[0]
-                        )
-
-                    predicted_index = int(
-                        probabilities.argmax().item()
-                    )
-
-                    prediction = labels[predicted_index]
-
-                    confidence = float(
-                        probabilities[predicted_index].item() * 100
-                    )
-
-                    accuracy = int(
-                        normalize_answer(prediction)
-                        == normalize_answer(ground_truth)
-                    ) * 100
-
-                st.session_state["clip_result"] = {
-                    "prediction": prediction,
-                    "confidence": confidence,
-                    "ground_truth": ground_truth,
-                    "accuracy": accuracy,
-                    "probabilities": {
-                        labels[i]: float(
-                            probabilities[i].item() * 100
-                        )
-                        for i in range(len(labels))
-                    },
-                }
-
-                st.success("CLIP evaluation completed! ✅")
-
-            except Exception as exc:
-                st.error(f"CLIP evaluation failed: {exc}")
-
-        result = st.session_state.get("clip_result")
-
-        if result:
-
-            st.divider()
-            st.header("📊 CLIP Results Dashboard")
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            c1.metric(
-                "Prediction",
-                result["prediction"].title(),
-            )
-
-            c2.metric(
-                "Confidence",
-                f'{result["confidence"]:.2f}%',
-            )
-
-            c3.metric(
-                "Ground Truth",
-                result["ground_truth"].title(),
-            )
-
-            c4.metric(
-                "Single-image score",
-                f'{result["accuracy"]}%',
-            )
-
-            if result["accuracy"] == 100:
-                st.success(
-                    f'✅ Correct prediction: '
-                    f'{result["prediction"].title()}'
-                )
-            else:
-                st.warning(
-                    f'CLIP predicted **{result["prediction"].title()}**, '
-                    f'but the selected ground truth is '
-                    f'**{result["ground_truth"].title()}**.'
-                )
-
-            st.subheader("📈 Class Probability Distribution")
-
-            probability_df = pd.DataFrame(
-                list(result["probabilities"].items()),
-                columns=["Class", "Probability (%)"],
-            ).sort_values(
-                "Probability (%)",
-                ascending=False,
-            )
-
-            st.bar_chart(
-                probability_df.set_index("Class")
-            )
-
-            st.subheader("📋 Detailed Evaluation")
-
-            results_df = pd.DataFrame([{
-                "Model": "CLIP",
-                "Task": "Image Classification",
-                "Prediction": result["prediction"],
-                "Ground Truth": result["ground_truth"],
-                "Confidence (%)": round(
-                    result["confidence"], 2
-                ),
-                "Single-image score (%)": result["accuracy"],
-            }])
-
-            st.dataframe(
-                results_df,
-                use_container_width=True,
-            )
-
-            st.download_button(
-                "⬇️ Download CLIP Results as CSV",
-                data=results_df.to_csv(index=False),
-                file_name="visioneval_clip_results.csv",
-                mime="text/csv",
-            )
-
-            st.caption(
-                "Single-image result only; not an official benchmark score."
-            )
-
-
-# ============================================================
-# BLIP: IMAGE CAPTIONING
-# ============================================================
-
-elif task == "Image Captioning":
-
-    st.header("🟢 BLIP Image Captioning")
-
-    st.write(
-        "BLIP generates a natural-language caption for the uploaded image."
-    )
-
-    if image is None:
-        st.info(
-            "Upload an image above to start BLIP captioning."
-        )
-
-    else:
-
-        if st.button(
-            "🚀 Run BLIP Captioning",
-            type="primary",
-        ):
-
-            try:
-                with st.spinner("Loading BLIP model..."):
-                    processor, model = load_blip_model()
-
-                with st.spinner("Generating caption..."):
-
-                    inputs = processor(
-                        images=image,
-                        return_tensors="pt",
-                    )
-
-                    inputs = {
-                        key: value.to(DEVICE)
-                        for key, value in inputs.items()
-                    }
-
-                    with torch.no_grad():
-                        output = model.generate(
-                            **inputs,
-                            max_new_tokens=40,
-                        )
-
-                    caption = processor.decode(
-                        output[0],
-                        skip_special_tokens=True,
-                    )
-
-                st.session_state["blip_caption"] = caption
-                st.session_state.pop("blip_result", None)
-
-                st.success("BLIP caption generated! ✅")
-
-            except Exception as exc:
-                st.error(f"BLIP captioning failed: {exc}")
-
-        caption = st.session_state.get("blip_caption")
-
-        if caption:
-
-            st.subheader("🤖 Generated Caption")
-            st.info(caption)
-
-            reference_caption = st.text_area(
-                "🎯 Enter a human/reference caption to calculate BLEU:",
-                placeholder="Example: a dog sitting on a sidewalk",
-                key="blip_reference_input",
-            )
-
-            if st.button("📊 Calculate BLEU Score"):
-
-                if not reference_caption.strip():
-                    st.warning(
-                        "Enter a reference caption first."
-                    )
-
-                else:
-
-                    score = sentence_bleu(
-                        [reference_caption.lower().split()],
-                        caption.lower().split(),
-                        smoothing_function=SmoothingFunction().method1,
-                    )
-
-                    st.session_state["blip_result"] = {
-                        "caption": caption,
-                        "reference": reference_caption,
-                        "bleu": float(score),
-                    }
-
-            result = st.session_state.get("blip_result")
-
-            if result:
-
-                st.divider()
-                st.header("📊 BLIP Evaluation Dashboard")
-
-                c1, c2 = st.columns(2)
-
-                c1.metric(
-                    "BLEU score",
-                    f'{result["bleu"]:.4f}',
-                )
-
-                c2.metric(
-                    "BLEU (%)",
-                    f'{result["bleu"] * 100:.2f}%',
-                )
-
-                comparison_df = pd.DataFrame([{
-                    "Model": "BLIP",
-                    "Task": "Image Captioning",
-                    "Generated Caption": result["caption"],
-                    "Reference Caption": result["reference"],
-                    "BLEU Score": round(result["bleu"], 4),
-                }])
-
-                st.dataframe(
-                    comparison_df,
-                    use_container_width=True,
-                )
-
-                st.download_button(
-                    "⬇️ Download BLIP Results as CSV",
-                    data=comparison_df.to_csv(index=False),
-                    file_name="visioneval_blip_results.csv",
-                    mime="text/csv",
-                )
-
-                st.caption(
-                    "BLEU measures n-gram overlap with the reference caption. "
-                    "A single reference caption is a demo, not an official COCO score."
-                )
-
-
-# ============================================================
-# VQA: LLAVA + GEMINI
-# ============================================================
-
-elif task == "Visual Question Answering":
-
-    st.header("🟣 Visual Question Answering")
-
-    st.write(
-        "Ask the same question about an image to LLaVA and Gemini, "
-        "then compare their answers."
-    )
-
-    if image is None:
-
-        st.info("Upload an image above to begin VQA.")
-
-    else:
-
-        question = st.text_input(
-            "Ask a question about the image",
-            placeholder="Example: What is the person wearing?",
-            key="vqa_question_input",
-        )
-
-        reference_answer = st.text_input(
-            "Reference answer (optional)",
-            placeholder="Example: A black jacket",
-            key="vqa_reference_input",
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            run_llava = st.checkbox(
-                "Run LLaVA",
-                value=True,
-            )
-
-        with col2:
-            run_gemini = st.checkbox(
-                "Run Gemini",
-                value=True,
-            )
-
-        if st.button(
-            "🚀 Compare AI Models",
-            type="primary",
-        ):
-
-            if not question.strip():
-                st.warning("Please enter a question.")
-
-            elif not run_llava and not run_gemini:
-                st.warning("Select at least one model.")
-
-            else:
-
-                answers = {}
-
-                # ------------------------------------------------
-                # GEMINI
-                # ------------------------------------------------
-
-                if run_gemini:
-
-                    st.subheader("🔴 Gemini")
-
-                    gemini_key = read_secret("GEMINI_API_KEY")
-
-                    if not gemini_key:
-
-                        st.error(
-                            "GEMINI_API_KEY is missing. Add it in "
-                            "Streamlit Cloud → app settings → Secrets."
-                        )
-
-                    else:
-
-                        try:
-                            with st.spinner(
-                                "Gemini is analysing the image..."
-                            ):
-
-                                client = genai.Client(
-                                    api_key=gemini_key
-                                )
-
-                                response = client.models.generate_content(
-                                    model="gemini-3.8-flash",
-                                    contents=[
-                                        question,
-                                        image,
-                                    ],
-                                )
-
-                                answer = (
-                                    response.text or ""
-                                ).strip()
-
-                                if not answer:
-                                    raise RuntimeError(
-                                        "Gemini returned an empty response."
-                                    )
-
-                                answers["Gemini"] = answer
-                                st.success(answer)
-
-                        except Exception as exc:
-                            st.error(
-                                f"Gemini request failed: {exc}"
-                            )
-
-                # ------------------------------------------------
-                # LLAVA
-                # ------------------------------------------------
-
-                if run_llava:
-
-                    st.subheader("🟣 LLaVA")
-
-                    hf_token = read_secret("HF_TOKEN")
-
-                    if not hf_token:
-
-                        st.error(
-                            "HF_TOKEN is missing. Add a Hugging Face "
-                            "access token in Streamlit Cloud → app settings → Secrets."
-                        )
-
-                    else:
-
-                        try:
-                            with st.spinner(
-                                "LLaVA is analysing the image..."
-                            ):
-
-                                image_buffer = BytesIO()
-
-                                image.save(
-                                    image_buffer,
-                                    format="JPEG",
-                                )
-
-                                image_b64 = base64.b64encode(
-                                    image_buffer.getvalue()
-                                ).decode("utf-8")
-
-                                image_data_url = (
-                                    "data:image/jpeg;base64,"
-                                    + image_b64
-                                )
-
-                                hf_client = InferenceClient(
-                                    token=hf_token,
-                                    timeout=120,
-                                )
-
-                                response = hf_client.chat.completions.create(
-                                    model="llava-hf/llava-1.5-7b-hf",
-                                    messages=[
-                                        {
-                                            "role": "user",
-                                            "content": [
-                                                {
-                                                    "type": "text",
-                                                    "text": question,
-                                                },
-                                                {
-                                                    "type": "image_url",
-                                                    "image_url": {
-                                                        "url": image_data_url
-                                                    },
-                                                },
-                                            ],
-                                        }
-                                    ],
-                                    max_tokens=150,
-                                )
-
-                                answer = (
-                                    response.choices[0].message.content
-                                    or ""
-                                ).strip()
-
-                                if not answer:
-                                    raise RuntimeError(
-                                        "LLaVA returned an empty response."
-                                    )
-
-                                answers["LLaVA"] = answer
-                                st.success(answer)
-
-                        except Exception as exc:
-                            st.error(
-                                "LLaVA request failed. The model may not be "
-                                "available through your Hugging Face inference "
-                                "provider or may require provider access. "
-                                f"Details: {exc}"
-                            )
-
-                # ------------------------------------------------
-                # COMPARE ANSWERS
-                # ------------------------------------------------
-
-                if answers:
-
-                    st.divider()
-                    st.subheader("📊 Answer Comparison")
-
-                    comparison_df = pd.DataFrame([
-                        {
-                            "Model": model_name,
-                            "Question": question,
-                            "Answer": answer,
-                        }
-                        for model_name, answer in answers.items()
-                    ])
-
-                    st.dataframe(
-                        comparison_df,
-                        use_container_width=True,
-                    )
-
-                    st.download_button(
-                        "⬇️ Download VQA Results as CSV",
-                        data=comparison_df.to_csv(index=False),
-                        file_name="visioneval_vqa_results.csv",
-                        mime="text/csv",
-                    )
-
-                    if reference_answer.strip():
-
-                        st.subheader(
-                            "🎯 Reference Answer Comparison"
-                        )
-
-                        ref_normalized = normalize_answer(
-                            reference_answer
-                        )
-
-                        score_rows = []
-
-                        for model_name, answer in answers.items():
-
-                            exact_match = int(
-                                normalize_answer(answer)
-                                == ref_normalized
-                            ) * 100
-
-                            score_rows.append({
-                                "Model": model_name,
-                                "Reference Answer": reference_answer,
-                                "Model Answer": answer,
-                                "Exact Match (%)": exact_match,
-                            })
-
-                        score_df = pd.DataFrame(score_rows)
-
-                        st.dataframe(
-                            score_df,
-                            use_container_width=True,
-                        )
-
-                        st.caption(
-                            "Exact-match is a simple demo metric, not the official "
-                            "VQAv2 scoring script. Natural-language answers can be "
-                            "correct even when their wording differs."
-                        )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
+if uploaded_file is None:
+    st.info("Upload an image to start evaluating the models.")
+    st.stop()
+
+try:
+    image = Image.open(uploaded_file).convert("RGB")
+except Exception as error:
+    st.error(f"Could not open this image: {error}")
+    st.stop()
+
+left, right = st.columns(2)
+
+with left:
+    st.image(image, caption="Uploaded image", use_container_width=True)
+
+with right:
+    st.subheader("Image details")
+    st.write(f"**File name:** {uploaded_file.name}")
+    st.write(f"**Dimensions:** {image.width} × {image.height}")
+    st.write(f"**Format:** {uploaded_file.type or 'Unknown'}")
 
 st.divider()
 
-st.caption(
-    "VisionEval — Multimodal AI Model Evaluation & Error Analysis Platform"
+
+# ---------------------------------------------------------
+# TASK SELECTOR
+# ---------------------------------------------------------
+st.header("2. Select an evaluation task")
+
+task = st.radio(
+    "Choose a task",
+    [
+        "Image Classification (CLIP)",
+        "Image Captioning (BLIP)",
+        "Visual Question Answering (VQA)",
+    ],
+    horizontal=True,
 )
 
-st.caption(
-    "Models: CLIP • BLIP • LLaVA • Gemini | "
-    "Metrics: Accuracy • BLEU • Exact Match (demo)"
-)
+
+# =========================================================
+# TASK 1: CLIP IMAGE CLASSIFICATION
+# =========================================================
+if task == "Image Classification (CLIP)":
+
+    st.subheader("CLIP — Image Classification")
+
+    st.write(
+        "Enter candidate labels separated by commas. CLIP compares "
+        "the image with each label and returns similarity-based probabilities."
+    )
+
+    labels_text = st.text_input(
+        "Candidate labels",
+        value="cat, dog, bird, car, person",
+        help="Enter at least two labels, separated by commas.",
+    )
+
+    labels = list(
+        dict.fromkeys(
+            label.strip()
+            for label in labels_text.split(",")
+            if label.strip()
+        )
+    )
+
+    ground_truth = st.selectbox(
+        "Ground-truth label (optional)",
+        ["Not provided"] + labels,
+        index=0,
+    )
+
+    if st.button(
+        "Run CLIP classification",
+        type="primary",
+        use_container_width=True,
+    ):
+
+        if len(labels) < 2:
+            st.warning("Please enter at least two different candidate labels.")
+
+        else:
+            try:
+                processor, model = load_clip()
+
+                inputs = processor(
+                    text=labels,
+                    images=image,
+                    return_tensors="pt",
+                    padding=True,
+                )
+
+                inputs = {
+                    key: value.to(DEVICE
