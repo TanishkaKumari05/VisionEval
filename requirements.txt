@@ -5,3 +5,5 @@ transformers
 Pillow
 pandas
 nltk
+google-genai
+huggingface_hub
