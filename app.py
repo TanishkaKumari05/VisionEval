@@ -17,68 +17,147 @@ from transformers import (
 from huggingface_hub import InferenceClient
 from google import genai
 
-
-# --------------------------------------------------
+# ---------------------------------------------------------
 # PAGE CONFIGURATION
-# --------------------------------------------------
+# ---------------------------------------------------------
 st.set_page_config(
     page_title="VisionEval | Multimodal AI Evaluation",
     page_icon="🧠",
     layout="wide",
 )
 
-st.title("🧠 VisionEval")
-st.caption("Multimodal AI Model Evaluation Dashboard")
+# ---------------------------------------------------------
+# CUSTOM STYLING
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: #0B1020;
+        color: #F1F5F9;
+    }
 
-st.markdown("""
-Evaluate models for:
-- Image Classification using CLIP
-- Image Captioning using BLIP
-- Visual Question Answering using Gemini and Hugging Face
-- Confidence, accuracy, BLEU, exact match, and CSV results
-""")
+    .block-container {
+        max-width: 1250px;
+        padding-top: 2.2rem;
+        padding-bottom: 3rem;
+    }
+
+    h1 {
+        font-size: 2.7rem !important;
+        font-weight: 800 !important;
+        letter-spacing: -1px;
+    }
+
+    h2, h3 {
+        color: #E4E7FF !important;
+        font-weight: 700 !important;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: #11182A;
+        border-right: 1px solid #27314A;
+    }
+
+    .stButton > button,
+    .stDownloadButton > button {
+        background: #7464F5;
+        color: #FFFFFF;
+        border: 1px solid #8A7DFF;
+        border-radius: 10px;
+        padding: 0.65rem 1rem;
+        font-weight: 600;
+        transition: 0.2s ease;
+    }
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
+        background: #5D4BE0;
+        border-color: #A99FFF;
+        color: #FFFFFF;
+    }
+
+    div[data-testid="stMetric"] {
+        background: #151E32;
+        border: 1px solid #2B3651;
+        padding: 18px;
+        border-radius: 14px;
+    }
+
+    div[data-testid="stFileUploader"] {
+        background: #121A2D;
+        border: 1px dashed #7464F5;
+        border-radius: 14px;
+        padding: 12px;
+    }
+
+    .stTextInput input,
+    .stTextArea textarea,
+    div[data-baseweb="select"] > div {
+        background: #151E32;
+        border-color: #34405C;
+        border-radius: 9px;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #2B3651;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    div[data-testid="stAlert"] {
+        border-radius: 10px;
+    }
+
+    hr {
+        border-color: #27314A;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
+# HEADER
+# ---------------------------------------------------------
+st.title("🧠 VisionEval")
+st.caption("MULTIMODAL AI EVALUATION STUDIO")
+st.markdown(
+    "Compare image classification, captioning, and visual "
+    "question answering models in one workspace."
+)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-
-# --------------------------------------------------
-# LOAD MODELS
-# --------------------------------------------------
+# ---------------------------------------------------------
+# MODEL LOADING
+# ---------------------------------------------------------
 @st.cache_resource(show_spinner="Loading CLIP model...")
 def load_clip():
     name = "openai/clip-vit-base-patch32"
     processor = CLIPProcessor.from_pretrained(name)
-    model = CLIPModel.from_pretrained(name)
-    model.to(DEVICE)
+    model = CLIPModel.from_pretrained(name).to(DEVICE)
     model.eval()
     return processor, model
 
 
-@st.cache_resource(show_spinner="Loading BLIP model...")
+@st.cache_resource(show_spinner="Loading BLIP captioning model...")
 def load_blip():
     name = "Salesforce/blip-image-captioning-base"
     processor = BlipProcessor.from_pretrained(name)
-    model = BlipForConditionalGeneration.from_pretrained(name)
-    model.to(DEVICE)
+    model = BlipForConditionalGeneration.from_pretrained(name).to(DEVICE)
     model.eval()
     return processor, model
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # HELPER FUNCTIONS
-# --------------------------------------------------
+# ---------------------------------------------------------
 def get_secret(name):
     try:
         return str(st.secrets.get(name, "")).strip()
     except Exception:
         return ""
-
-
-def image_to_data_url(image):
-    buffer = io.BytesIO()
-    image.convert("RGB").save(buffer, format="JPEG", quality=90)
-    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
 
 
 def normalize_answer(answer):
@@ -103,42 +182,58 @@ def calculate_bleu(reference, candidate):
     )
 
 
+def image_to_data_url(image):
+    buffer = io.BytesIO()
+    image.convert("RGB").save(
+        buffer,
+        format="JPEG",
+        quality=90,
+    )
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
 def download_csv(dataframe, filename, label):
-    csv_data = dataframe.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
         label=label,
-        data=csv_data,
+        data=dataframe.to_csv(index=False).encode("utf-8-sig"),
         file_name=filename,
         mime="text/csv",
         use_container_width=True,
     )
 
 
-def show_error(provider, error):
+def show_api_error(provider, error):
     st.error(f"{provider} request failed.")
     st.code(str(error))
     st.caption(
-        "Check your API key, model identifier, and provider access. "
-        "Never share your API keys."
+        "Check the API key, model ID, and provider availability. "
+        "Never share API keys."
     )
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # SIDEBAR
-# --------------------------------------------------
+# ---------------------------------------------------------
 with st.sidebar:
     st.header("About VisionEval")
     st.write("A multimodal AI evaluation dashboard.")
-    st.write(f"Runtime device: {DEVICE}")
+    st.write(f"**Runtime device:** `{DEVICE}`")
     st.divider()
-    st.write("Required Streamlit secrets:")
-    st.code("GEMINI_API_KEY\nHF_TOKEN")
+    st.subheader("API configuration")
+    st.write(
+        "Add `GEMINI_API_KEY` and `HF_TOKEN` "
+        "in Streamlit Secrets."
+    )
+    st.caption(
+        "Never put API keys directly in this file or GitHub."
+    )
 
 
-# --------------------------------------------------
-# UPLOAD IMAGE
-# --------------------------------------------------
-st.header("1. Upload an image")
+# ---------------------------------------------------------
+# IMAGE UPLOAD
+# ---------------------------------------------------------
+st.header("01 · Upload an image")
 
 uploaded_file = st.file_uploader(
     "Choose an image",
@@ -146,7 +241,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("Upload an image to begin.")
+    st.info("Upload an image to begin your evaluation.")
     st.stop()
 
 try:
@@ -155,27 +250,30 @@ except Exception as error:
     st.error(f"Could not open image: {error}")
     st.stop()
 
-col1, col2 = st.columns(2)
+left, right = st.columns([1, 1])
 
-with col1:
-    st.image(image, caption="Uploaded image", use_container_width=True)
+with left:
+    st.image(
+        image,
+        caption="Uploaded image",
+        use_container_width=True,
+    )
 
-with col2:
+with right:
     st.subheader("Image details")
-    st.write(f"File: {uploaded_file.name}")
-    st.write(f"Dimensions: {image.width} × {image.height}")
-    st.write(f"Format: {uploaded_file.type or 'Unknown'}")
+    st.write(f"**File:** {uploaded_file.name}")
+    st.write(f"**Dimensions:** {image.width} × {image.height}")
+    st.write(f"**Format:** {uploaded_file.type or 'Unknown'}")
 
 st.divider()
 
-
-# --------------------------------------------------
-# SELECT TASK
-# --------------------------------------------------
-st.header("2. Select an evaluation task")
+# ---------------------------------------------------------
+# TASK SELECTOR
+# ---------------------------------------------------------
+st.header("02 · Choose an evaluation task")
 
 task = st.radio(
-    "Choose task",
+    "Select a model task",
     [
         "Image Classification (CLIP)",
         "Image Captioning (BLIP)",
@@ -185,23 +283,29 @@ task = st.radio(
 )
 
 
-# ==================================================
-# TASK 1: CLIP CLASSIFICATION
-# ==================================================
+# =========================================================
+# TASK 1: CLIP IMAGE CLASSIFICATION
+# =========================================================
 if task == "Image Classification (CLIP)":
 
-    st.subheader("CLIP — Image Classification")
-
-    labels_text = st.text_input(
-        "Candidate labels separated by commas",
-        value="cat, dog, bird, car, person",
+    st.subheader("CLIP · Image Classification")
+    st.write(
+        "Compare the image with candidate labels using "
+        "CLIP similarity scores."
     )
 
-    labels = list(dict.fromkeys(
-        label.strip()
-        for label in labels_text.split(",")
-        if label.strip()
-    ))
+    labels_text = st.text_input(
+        "Candidate labels, separated by commas",
+        "cat, dog, bird, car, person",
+    )
+
+    labels = list(
+        dict.fromkeys(
+            x.strip()
+            for x in labels_text.split(",")
+            if x.strip()
+        )
+    )
 
     ground_truth = st.selectbox(
         "Ground-truth label (optional)",
@@ -235,7 +339,10 @@ if task == "Image Classification (CLIP)":
 
                 with torch.inference_mode():
                     outputs = model(**inputs)
-                    probabilities = outputs.logits_per_image.softmax(dim=1)[0]
+
+                    probabilities = (
+                        outputs.logits_per_image.softmax(dim=1)[0]
+                    )
 
                     predicted_index = int(
                         torch.argmax(probabilities).item()
@@ -255,12 +362,17 @@ if task == "Image Classification (CLIP)":
                     else None
                 )
 
-                st.success(f"Predicted label: {predicted_label}")
+                st.success(
+                    f"Predicted label: **{predicted_label}**"
+                )
 
                 m1, m2, m3 = st.columns(3)
 
                 m1.metric("Prediction", predicted_label)
-                m2.metric("Confidence", f"{confidence:.2%}")
+                m2.metric(
+                    "Top-label probability",
+                    f"{confidence:.2%}",
+                )
                 m3.metric(
                     "Accuracy for this image",
                     f"{accuracy * 100:.0f}%"
@@ -279,7 +391,8 @@ if task == "Image Classification (CLIP)":
                     ascending=False,
                 )
 
-                st.subheader("Class probabilities")
+                st.subheader("Class probability comparison")
+
                 st.bar_chart(
                     probability_df.set_index("Label")["Probability"]
                 )
@@ -307,34 +420,42 @@ if task == "Image Classification (CLIP)":
                 }])
 
                 st.subheader("Evaluation results")
-                st.dataframe(result_df, use_container_width=True)
+                st.dataframe(
+                    result_df,
+                    use_container_width=True,
+                )
 
                 download_csv(
                     result_df,
                     "visioneval_clip_results.csv",
-                    "Download CLIP results (CSV)",
+                    "⬇️ Download CLIP results (CSV)",
                 )
 
-                with st.expander("View all probabilities"):
+                with st.expander("View all class probabilities"):
                     st.dataframe(
                         probability_df,
                         use_container_width=True,
                     )
 
             except Exception as error:
-                show_error("CLIP", error)
+                show_api_error("CLIP", error)
 
 
-# ==================================================
+# =========================================================
 # TASK 2: BLIP IMAGE CAPTIONING
-# ==================================================
+# =========================================================
 elif task == "Image Captioning (BLIP)":
 
-    st.subheader("BLIP — Image Captioning")
+    st.subheader("BLIP · Image Captioning")
+    st.write(
+        "Generate a caption and optionally compare it with "
+        "a reference caption using sentence BLEU."
+    )
 
     reference_caption = st.text_area(
         "Reference caption (optional)",
-        placeholder="Example: A dog is running in a park.",
+        placeholder="Example: A brown dog is running in a green park.",
+        height=90,
     )
 
     if st.button(
@@ -375,13 +496,15 @@ elif task == "Image Captioning (BLIP)":
             )
 
             st.success("Caption generated successfully.")
-            st.subheader("Generated caption")
+            st.markdown("### Generated caption")
             st.write(caption)
 
             c1, c2 = st.columns(2)
 
-            c1.metric("Word count", len(caption.split()))
-
+            c1.metric(
+                "Caption word count",
+                len(caption.split()),
+            )
             c2.metric(
                 "Sentence BLEU",
                 f"{bleu_score:.4f}"
@@ -391,7 +514,8 @@ elif task == "Image Captioning (BLIP)":
 
             if not reference_caption.strip():
                 st.info(
-                    "Provide a reference caption to calculate BLEU."
+                    "Add a reference caption and run again "
+                    "to calculate BLEU."
                 )
 
             result_df = pd.DataFrame([{
@@ -411,28 +535,35 @@ elif task == "Image Captioning (BLIP)":
             }])
 
             st.subheader("Evaluation results")
-            st.dataframe(result_df, use_container_width=True)
+            st.dataframe(
+                result_df,
+                use_container_width=True,
+            )
 
             download_csv(
                 result_df,
                 "visioneval_blip_results.csv",
-                "Download captioning results (CSV)",
+                "⬇️ Download captioning results (CSV)",
             )
 
         except Exception as error:
-            show_error("BLIP", error)
+            show_api_error("BLIP", error)
 
 
-# ==================================================
+# =========================================================
 # TASK 3: VISUAL QUESTION ANSWERING
-# ==================================================
+# =========================================================
 else:
 
-    st.subheader("Visual Question Answering")
+    st.subheader("VQA · Visual Question Answering")
+    st.write(
+        "Ask a question about the image and compare responses "
+        "from available vision-language models."
+    )
 
     question = st.text_input(
         "Question about the image",
-        value="What is shown in this image?",
+        "What is shown in this image?",
         max_chars=500,
     )
 
@@ -442,12 +573,12 @@ else:
         max_chars=300,
     )
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with col1:
+    with c1:
         run_gemini = st.checkbox("Run Gemini", value=True)
 
-    with col2:
+    with c2:
         run_huggingface = st.checkbox(
             "Run Hugging Face vision model",
             value=True,
@@ -457,8 +588,8 @@ else:
         "Hugging Face vision model ID",
         value="Qwen/Qwen2.5-VL-3B-Instruct",
         help=(
-            "Use a vision-language model available through your "
-            "enabled Hugging Face Inference Providers."
+            "This model must be supported by an Inference Provider "
+            "enabled for your Hugging Face account."
         ),
     )
 
@@ -469,7 +600,7 @@ else:
     ):
 
         if not question.strip():
-            st.warning("Enter a question.")
+            st.warning("Please enter a question.")
 
         elif not run_gemini and not run_huggingface:
             st.warning("Select at least one model.")
@@ -477,16 +608,17 @@ else:
         else:
             results = []
 
-            # ------------------------------------------
+            # ---------------------------------------------
             # GEMINI
-            # ------------------------------------------
+            # ---------------------------------------------
             if run_gemini:
 
                 gemini_key = get_secret("GEMINI_API_KEY")
 
                 if not gemini_key:
                     st.error(
-                        "GEMINI_API_KEY is missing from Streamlit Secrets."
+                        "Gemini API key missing. Add GEMINI_API_KEY "
+                        "in Streamlit Secrets."
                     )
 
                 else:
@@ -502,10 +634,11 @@ else:
                                 contents=[question.strip(), image],
                             )
 
-                            answer = (response.text or "").strip()
-
-                            if not answer:
-                                answer = "Empty response from Gemini."
+                            answer = (
+                                response.text or ""
+                            ).strip() or (
+                                "The model returned an empty response."
+                            )
 
                             exact_match = (
                                 normalize_answer(answer)
@@ -523,7 +656,9 @@ else:
                                 "model": "gemini-3.8-flash",
                                 "question": question.strip(),
                                 "answer": answer,
-                                "reference_answer": reference_answer.strip(),
+                                "reference_answer": (
+                                    reference_answer.strip()
+                                ),
                                 "exact_match": (
                                     exact_match
                                     if exact_match is not None
@@ -533,18 +668,19 @@ else:
                             })
 
                         except Exception as error:
-                            show_error("Gemini", error)
+                            show_api_error("Gemini", error)
 
-            # ------------------------------------------
+            # ---------------------------------------------
             # HUGGING FACE VISION MODEL
-            # ------------------------------------------
+            # ---------------------------------------------
             if run_huggingface:
 
                 hf_token = get_secret("HF_TOKEN")
 
                 if not hf_token:
                     st.error(
-                        "HF_TOKEN is missing from Streamlit Secrets."
+                        "Hugging Face token missing. Add HF_TOKEN "
+                        "in Streamlit Secrets."
                     )
 
                 elif not hf_model.strip():
@@ -552,7 +688,7 @@ else:
 
                 else:
                     with st.spinner(
-                        "Asking Hugging Face vision model..."
+                        "Asking the Hugging Face vision model..."
                     ):
 
                         try:
@@ -587,12 +723,9 @@ else:
 
                             answer = (
                                 response.choices[0].message.content or ""
-                            ).strip()
-
-                            if not answer:
-                                answer = (
-                                    "Empty response from Hugging Face model."
-                                )
+                            ).strip() or (
+                                "The model returned an empty response."
+                            )
 
                             exact_match = (
                                 normalize_answer(answer)
@@ -610,7 +743,9 @@ else:
                                 "model": hf_model.strip(),
                                 "question": question.strip(),
                                 "answer": answer,
-                                "reference_answer": reference_answer.strip(),
+                                "reference_answer": (
+                                    reference_answer.strip()
+                                ),
                                 "exact_match": (
                                     exact_match
                                     if exact_match is not None
@@ -620,23 +755,21 @@ else:
                             })
 
                         except Exception as error:
-                            show_error(
+                            show_api_error(
                                 "Hugging Face vision model",
                                 error,
                             )
 
                             st.warning(
-                                "If the error is model_not_supported, "
-                                "the model is not available through an "
-                                "enabled provider for your account. "
-                                "A token alone cannot enable an unsupported "
-                                "model. Choose a compatible vision model "
-                                "and its exact model ID."
+                                "If you see model_not_supported, choose "
+                                "a vision-language model and provider "
+                                "available to your account. A token alone "
+                                "cannot enable an unsupported model."
                             )
 
-            # ------------------------------------------
+            # ---------------------------------------------
             # DISPLAY RESULTS
-            # ------------------------------------------
+            # ---------------------------------------------
             if results:
 
                 st.divider()
@@ -645,13 +778,12 @@ else:
                 for result in results:
 
                     with st.container(border=True):
-
                         st.markdown(f"**{result['model']}**")
                         st.write(result["answer"])
 
                         if result["exact_match"] == "":
                             st.caption(
-                                "Exact match: N/A — no reference answer"
+                                "Exact match: N/A — no reference answer provided"
                             )
                         else:
                             st.caption(
@@ -666,19 +798,22 @@ else:
                 result_df = pd.DataFrame(results)
 
                 st.subheader("VQA comparison table")
-                st.dataframe(result_df, use_container_width=True)
+                st.dataframe(
+                    result_df,
+                    use_container_width=True,
+                )
 
                 download_csv(
                     result_df,
                     "visioneval_vqa_results.csv",
-                    "Download VQA results (CSV)",
+                    "⬇️ Download VQA results (CSV)",
                 )
 
                 if len(results) >= 2:
 
                     st.subheader("Answer comparison")
 
-                    comparison_df = pd.DataFrame([
+                    compare_df = pd.DataFrame([
                         {
                             "Model": row["model"],
                             "Answer": row["answer"],
@@ -696,29 +831,25 @@ else:
                     ])
 
                     st.dataframe(
-                        comparison_df,
+                        compare_df,
                         use_container_width=True,
                     )
 
                 st.caption(
-                    "Exact match compares normalized answer strings. "
-                    "It does not measure semantic similarity or fully "
+                    "Exact match is a strict string comparison; "
+                    "it does not measure semantic similarity or fully "
                     "evaluate VQA correctness."
                 )
 
             else:
                 st.info(
-                    "No model returned a successful answer. "
-                    "Review the errors and check API keys and model access."
+                    "No model returned a successful answer. Review the "
+                    "errors and verify API keys and model/provider access."
                 )
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # FOOTER
-# --------------------------------------------------
+# ---------------------------------------------------------
 st.divider()
-
-st.caption(
-    "VisionEval is an educational prototype. Results depend on the "
-    "image, labels, reference answers, model versions, and providers."
-)
+st.caption("VisionEval · Multimodal AI evaluation prototype")
